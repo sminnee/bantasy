@@ -574,3 +574,41 @@ func TestCheck(t *testing.T) {
 		t.Errorf("stdout = %q", r.stdout)
 	}
 }
+
+// TestCheckLineMatchesTheFixture is the CLI half of the reader parity
+// check; conformance_test.go in the plugin package is the other half.
+func TestCheckLineMatchesTheFixture(t *testing.T) {
+	lines, err := os.ReadFile("testdata/lines.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want, err := os.ReadFile("testdata/lines.want")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	l := strings.Split(strings.TrimSuffix(string(lines), "\n"), "\n")
+	w := strings.Split(strings.TrimSuffix(string(want), "\n"), "\n")
+
+	if len(l) != len(w) || len(l) == 0 {
+		t.Fatalf("fixture has %d lines and %d verdicts", len(l), len(w))
+	}
+
+	for i, line := range l {
+		ignored, err := checkLine([]byte(line))
+
+		got := "ok"
+
+		switch {
+		case err != nil:
+			got = "bad"
+		case ignored != "":
+			got = "ignored"
+		}
+
+		if got != w[i] {
+			t.Errorf("line %d %s: got %s, want %s (err %v)", i+1, line, got, w[i], err)
+		}
+	}
+}
