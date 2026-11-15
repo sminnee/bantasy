@@ -18,7 +18,7 @@ Without `make`, run the commands directly. `make lint`, `make test` and `make ya
 
 ## Architecture
 
-One package, stdlib only, no `unsafe`, no cgo.
+The plugin is one package at the repo root, stdlib only, no `unsafe`, no cgo.
 
 - `bantasy.go` — `Config`, `CreateConfig`, `New`, `ServeHTTP`: client IP, applies the decision (trap ban, block response), JSON log lines.
 - `decide.go` — `decide`: the whole evaluation order, with no side effects.
@@ -27,10 +27,19 @@ One package, stdlib only, no `unsafe`, no cgo.
 - `rules.go` — JSONL parse with per-line warnings, `compile` to allow and block lists, `match`.
 - `iprange.go` — IP prefixes as sorted 16-byte ranges with a running max end.
 - `trapban.go` — the bounded in-memory trap-ban table.
+- `conformance_test.go` — runs `parseRule` over `cmd/bantasy/testdata/lines.jsonl`.
+
+`cmd/bantasy/` is the rule CLI, a separate `package main`, stdlib only. The plugin never imports it, so Yaegi never loads it, and the Yaegi constraints below do not apply to it.
+
+- `main.go` — `run(args, env)`, flag parse with flags after positionals, exit codes.
+- `commands.go` — `add`, `remove`, `list`, `prune`, `check`; default targets.
+- `target.go` — `fileTarget` (atomic rename) and `configMapTarget` (`kubectl get`, then `replace` with the `resourceVersion` it read).
+- `lines.go` — a rule file as lines: `parseLines`, `render`, `prune`, `upsert`, `removeIDs`.
+- `validate.go` — the `add` checks, `parseTTL`, `ruleID`, and `checkLine`, a copy of the plugin's `parseRule`. `testdata/lines.jsonl` and `lines.want` keep the copy in step: change both packages together.
 
 ## Yaegi constraints
 
-Traefik runs the plugin in Yaegi, not compiled Go. Every change must pass `make yaegi_test`.
+Traefik runs the plugin in Yaegi, not compiled Go. Every change to the root package must pass `make yaegi_test`.
 
 - No generics, `slices` or `maps` packages, `min`/`max` builtins or range over int.
 - No tuple assignment to struct fields (`f.a, f.b = x, y`): Yaegi drops values. Assign one field per statement.

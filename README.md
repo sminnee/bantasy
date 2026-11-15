@@ -60,7 +60,93 @@ Append a rule. A tool that is sure appends a ban with an `expires`:
 echo '{"kind":"ip","match":"203.0.113.7","reason":"sign-up abuse","source":"smartypants","cause":"smartypants:email-domain:spam.example","expires":"2026-11-16T03:00:00Z"}' >> bans.jsonl
 ```
 
-A tool that has only evidence appends a `signal` rule instead. A ConfigMap cannot be appended to; the ADR says how to write one.
+A tool that has only evidence appends a `signal` rule instead. A ConfigMap cannot be appended to. To write a rule to a ConfigMap, use the CLI.
+
+## CLI
+
+`cmd/bantasy` is a writer. It adds, removes, lists and prunes rules in rule files and ConfigMap keys, and checks local rule files. It ships with the plugin's git tags:
+
+```sh
+go run github.com/sminnee/bantasy/cmd/bantasy@v0.1.0 --help
+```
+
+```
+bantasy [global flags] <command> [args] [flags]
+
+add <kind> <match>... --reason <text> [--action <a>] [--ttl 30m|24h|7d|never]
+                      [--cause <id>] [--source <s>] [--id <id>]
+remove <id>...
+remove <kind> <match>... [--source <s>]
+list
+prune
+check <file>...
+```
+
+Examples:
+
+```sh
+bantasy add ip 203.0.113.7 --reason "credential stuffing"
+bantasy add user-agent BadBot --reason scraper --ttl 7d
+bantasy remove ops:ip:203.0.113.7
+bantasy --file bans.jsonl list
+bantasy check patterns.jsonl
+```
+
+### Targets
+
+A target is one rule file: a local file or one ConfigMap key.
+
+| Flag | Target |
+|---|---|
+| `--file <path>` | A local file. A missing file reads as empty. A write replaces the file with one rename. There is no conflict check: the last writer wins. |
+| `--configmap <namespace>/<name>:<key>` | One key of a ConfigMap. The CLI uses `kubectl`. A missing ConfigMap reads as empty, and a write creates it. |
+| `--context <name>` | The kubectl context for each ConfigMap target. The default is kubectl's current context. |
+
+`--file` and `--configmap` are repeatable, but each ConfigMap can be named once, and the global flags can go anywhere on the command line. With neither flag, writes go to `traefik/bantasy-dynamic:dynamic.jsonl`. `list` reads that target and `traefik/bantasy-static:static.jsonl`. A pod can mount a ConfigMap only from its own namespace, so the defaults are in `traefik`. Every argument after `--` is positional, for a match that starts with `-`.
+
+A write goes to each target in turn. `list` shows each rule once per target that holds it, with the target name.
+
+### Commands
+
+- `add` writes one rule per match. The id is `<source>:<kind>:<match>`, or `--id` for one match. When a target already holds a rule with that id, `add` replaces that line and keeps its `added` time.
+- `remove <id>...` applies when the first argument holds `:`. `remove <kind> <match>...` removes the rule with the id that `add` gives. A rule with the same match and another id belongs to another writer, so `remove` does not touch it. `remove` fails and writes nothing when no target holds one of the rules.
+- `list` prints the target, id, kind, match, action, source, cause and expiry of each rule. An expiry is `-` for none and `expired` when past.
+- `prune` drops expired rules.
+- `check` reads local files only. It prints `file:line: reason` for each line that bantasy cannot load, including a last line that does not parse.
+
+Each write edits only the lines of its own rules. Every other line keeps its exact text, including bad lines and the rules of other writers. Each write also drops expired rules of any writer, and ends each line with a newline. Blank lines drop.
+
+Exit codes: 0 done, 1 refused or failed, 2 bad command line.
+
+### Defaults and checks
+
+`--source` defaults to `ops`. `--reason` is required. `--ttl` defaults to `24h` for `ip` and to no expiry for other kinds; `--ttl never` gives a permanent rule. `--action` is `block` (default), `allow`, `ban-ip`, `signal` or a third-party `<source>:<name>`.
+
+`add` and `remove` check each match before the first read, so one bad match writes nothing:
+
+| Kind | Check | Stored match |
+|---|---|---|
+| `ip` | An address or CIDR. Not in a non-public range (private, CGNAT, loopback, link-local, multicast, documentation, reserved). No wider than /16 for IPv4 or /32 for IPv6. | The masked prefix. One address is stored bare. |
+| `path` | A Go regular expression. | As given. |
+| `user-agent`, `referrer` | 4 to 200 characters after trim, with no control character. | Trimmed, case kept. |
+| `email-domain` | A domain of two or more labels. | Lower-case, with no trailing dot. |
+
+The id has the match in lower case for `user-agent`, `referrer` and `email-domain`, so a change of case keeps the id.
+
+### Conflicts
+
+The CLI reads each ConfigMap, then writes it back with `kubectl replace` and the `resourceVersion` it read. When another writer changed the ConfigMap in between, the API server refuses the write. The CLI then stops with an error that names the target, and writes no more targets. The targets before it stay written. Run the command again. A create that finds the ConfigMap already there is a conflict too.
+
+### A wrapper for one cluster
+
+Pin the tag and the context in a script:
+
+```sh
+#!/bin/sh
+exec go run github.com/sminnee/bantasy/cmd/bantasy@v0.1.0 --context prod-cluster "$@"
+```
+
+The script uses the default targets. Do not pin both ConfigMaps with `--configmap`: then `add` writes to both.
 
 ## Trap bans
 
@@ -109,25 +195,25 @@ Traefik replaces `X-Real-Ip` with the remote address unless the entry point trus
 
 ## Kubernetes example
 
-Two ConfigMaps in the `traefik` namespace: `edge-ban-patterns` holds rules kept in a repo, and `edge-bans` holds bans that tools write.
+Two ConfigMaps in the `traefik` namespace: `bantasy-static` holds rules kept in a repo, and `bantasy-dynamic` holds rules that tools write. These are the CLI's default targets.
 
 ```yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: edge-ban-patterns
+  name: bantasy-static
   namespace: traefik
 data:
-  patterns.jsonl: |
+  static.jsonl: |
     {"id":"repo:php-probe","kind":"path","match":"(?i)\\.php($|\\?)","action":"ban-ip","reason":"PHP scanner","source":"repo"}
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: edge-bans
+  name: bantasy-dynamic
   namespace: traefik
 data:
-  bans.jsonl: ""
+  dynamic.jsonl: ""
 ```
 
 Traefik Helm chart values:
@@ -139,11 +225,11 @@ experimental:
       moduleName: github.com/sminnee/bantasy
       version: v0.1.0
 volumes:
-  - name: edge-ban-patterns
-    mountPath: /etc/bantasy/patterns
+  - name: bantasy-static
+    mountPath: /etc/bantasy/static
     type: configMap
-  - name: edge-bans
-    mountPath: /etc/bantasy/bans
+  - name: bantasy-dynamic
+    mountPath: /etc/bantasy/dynamic
     type: configMap
 ```
 
@@ -159,8 +245,8 @@ spec:
   plugin:
     bantasy:
       files:
-        - /etc/bantasy/patterns/patterns.jsonl
-        - /etc/bantasy/bans/bans.jsonl
+        - /etc/bantasy/static/static.jsonl
+        - /etc/bantasy/dynamic/dynamic.jsonl
       clientIpHeader: X-Real-Ip
 ```
 
@@ -173,4 +259,4 @@ make lint test yaegi_test
 make race   # needs a C compiler
 ```
 
-`yaegi_test` runs the test suite in Yaegi, the Go interpreter that Traefik uses to run plugins. The plugin must use only the Go standard library.
+`yaegi_test` runs the test suite in Yaegi, the Go interpreter that Traefik uses to run plugins. The plugin must use only the Go standard library. The CLI in `cmd/bantasy` is compiled Go, and Yaegi never loads it.

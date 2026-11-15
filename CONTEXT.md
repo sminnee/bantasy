@@ -31,6 +31,9 @@ _Avoid_: report, hint.
 
 **Foreign kind**: a kind that bantasy does not know, such as `email-domain`. bantasy ignores rules of a foreign kind, so other tools can keep their records in the same rule files.
 
-**Writer**: a tool or person that adds, changes or removes rules in a rule file. bantasy reads rule files and is never a writer.
+**Writer**: a tool or person that adds, changes or removes rules in a rule file. The plugin reads rule files and is never a writer. The CLI, `cmd/bantasy`, is a writer.
+
+**Target**: one rule file that the CLI reads or writes: a local file, or one key of one ConfigMap.
+_Avoid_: destination, store.
 
 **Cause**: the `id` of the rule or signal that led to a rule or a trap ban. bantasy logs it and does not check it.
