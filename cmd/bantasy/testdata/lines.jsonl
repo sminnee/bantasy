@@ -1,0 +1,27 @@
+{"kind":"ip","match":"203.0.113.7"}
+{"kind":"ip","match":"81.2.69.0/24","action":"block","expires":"2026-11-16T00:00:00Z"}
+{"kind":"ip","match":"2001:db8::/32","action":"allow"}
+{"kind":"ip","match":"81.2.69.0/33"}
+{"kind":"ip","match":"not-an-ip"}
+{"kind":"ip","match":"203.0.113.7","action":"ban-ip"}
+{"kind":"path","match":"^/wp-login\\.php","action":"ban-ip","banSeconds":3600}
+{"kind":"path","match":"(unclosed"}
+{"kind":"path","match":"^/x","banSeconds":-1}
+{"kind":"path","match":"^/x","banSeconds":3153600001}
+{"kind":"path","match":"^/x","banSeconds":1.5}
+{"kind":"user-agent","match":"sqlmap"}
+{"kind":"referrer","match":"spam.example","unknown":"field"}
+{"kind":"user-agent","match":""}
+{"kind":"email-domain","match":"x.com","action":"smartypants:block-signup"}
+{"kind":"email-domain","match":""}
+{"kind":"user-agent","match":"curl","action":"signal"}
+{"kind":"user-agent","match":"curl","action":"smartypants:block-signup"}
+{"kind":"ip","match":"","action":"signal"}
+{"match":"203.0.113.7"}
+{"kind":"","match":"203.0.113.7"}
+{"kind":5,"match":"203.0.113.7"}
+{"kind":"ip","match":"203.0.113.7","expires":null}
+{"kind":"ip","match":"203.0.113.7","expires":"tomorrow"}
+not json at all
+["kind","ip"]
+{"kind":"ip","match":"203.0.113.7"
