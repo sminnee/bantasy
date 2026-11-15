@@ -3,3 +3,4 @@
 .claude/settings.local.json
 .env
 AGENTS.md
+/cmd/bantasy/bantasy
