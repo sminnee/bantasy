@@ -1,0 +1,75 @@
+# Based on traefik/plugindemo's .golangci.yml, moved to the golangci-lint v2
+# format.
+version: "2"
+
+linters:
+  default: all
+  disable:
+    - bodyclose # too many false positives
+    - cyclop # duplicate of gocyclo
+    - depguard # stdlib only; nothing to guard
+    - dupl
+    - err113
+    - exhaustive
+    - exhaustruct
+    - exhaustruct_v5
+    - forbidigo
+    - gomodguard # deprecated; stdlib only
+    - gochecknoglobals # the shared rule set registry and the logger are globals by design
+    - intrange # Yaegi may not support range over int
+    - lll
+    - mnd
+    - modernize # its fixes (range over int, generics, min/max) may not run in Yaegi
+    - nlreturn
+    - noinlineerr
+    - noctx
+    - paralleltest # tests share the plugin logger
+    - testpackage
+    - tparallel
+    - varnamelen
+    - wrapcheck
+    - wsl
+    - wsl_v5
+  settings:
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment
+    gocyclo:
+      min-complexity: 12
+    goconst:
+      min-len: 5
+      min-occurrences: 4
+    misspell:
+      locale: US
+    funlen:
+      lines: -1
+      statements: 50
+    godox:
+      keywords:
+        - FIXME
+  exclusions:
+    rules:
+      - path: (.+)_test.go
+        linters:
+          - goconst
+          - funlen
+          - godot
+          - gocyclo
+          - gosec
+
+formatters:
+  enable:
+    - gci
+    - gofmt
+    - gofumpt
+    - goimports
+  settings:
+    gofumpt:
+      extra:
+        group-params: true
+        clothe-returns: true
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
