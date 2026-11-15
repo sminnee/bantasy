@@ -64,11 +64,16 @@ A tool that has only evidence appends a `signal` rule instead. A ConfigMap canno
 
 ## CLI
 
-`cmd/bantasy` is a writer. It adds, removes, lists and prunes rules in rule files and ConfigMap keys, and checks local rule files. It ships with the plugin's git tags:
+`cmd/bantasy` is a writer. It adds, removes, lists and prunes rules in rule files and ConfigMap keys, and checks local rule files. It ships with the plugin's git tags.
+
+Install the latest release, or a pinned one:
 
 ```sh
-go run github.com/sminnee/bantasy/cmd/bantasy@v0.1.0 --help
+go install github.com/sminnee/bantasy/cmd/bantasy@latest
+go install github.com/sminnee/bantasy/cmd/bantasy@v0.0.2
 ```
+
+`@latest` is the highest release tag. Run the same command again to upgrade. `go version -m "$(command -v bantasy)"` shows the installed version.
 
 ```
 bantasy [global flags] <command> [args] [flags]
@@ -143,7 +148,7 @@ Pin the tag and the context in a script:
 
 ```sh
 #!/bin/sh
-exec go run github.com/sminnee/bantasy/cmd/bantasy@v0.1.0 --context prod-cluster "$@"
+exec go run github.com/sminnee/bantasy/cmd/bantasy@v0.0.2 --context prod-cluster "$@"
 ```
 
 The script uses the default targets. Do not pin both ConfigMaps with `--configmap`: then `add` writes to both.
@@ -223,7 +228,7 @@ experimental:
   plugins:
     bantasy:
       moduleName: github.com/sminnee/bantasy
-      version: v0.1.0
+      version: v0.0.2
 volumes:
   - name: bantasy-static
     mountPath: /etc/bantasy/static
