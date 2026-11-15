@@ -28,7 +28,7 @@ The CLI, `cmd/bantasy`, is the reference writer for ConfigMaps. The README descr
 |---|---|---|
 | `kind` | yes | `ip`, `path`, `user-agent`, `referrer`, or a foreign kind. |
 | `match` | yes | The pattern for the kind. It must not be empty. |
-| `action` | no | `block` (default), `allow`, `ban-ip`, `signal`, or a third-party action. |
+| `action` | no | `block` (default), `allow`, `ban-ip`, `pardon` ([ADR 0002](0002-pardon-and-default-rule-files.md)), `signal`, or a third-party action. |
 | `banSeconds` | no | For `ban-ip`: the trap-ban time. Absent: the Middleware's `trapBanSeconds`. |
 | `id` | no | A writer-chosen string, by convention `<source>:<key>`, such as `smartypants:email-domain:spam.example`. |
 | `cause` | no | The `id` of the rule or signal that led to this rule. |
@@ -56,7 +56,7 @@ A reader ignores an action it does not know, as it ignores a foreign kind. A too
 
 1. Allow rules of every kind. A match passes the request.
 2. `ip` rules.
-3. The trap-ban table.
+3. The trap-ban table. A pardon can lift a trap ban here ([ADR 0002](0002-pardon-and-default-rule-files.md)).
 4. `path` rules, then `user-agent` rules, then `referrer` rules.
 
 The first match decides. `block` returns the block response. `ban-ip` also gives the client IP a trap ban. An `ip` rule with `ban-ip` acts the same as `block`.

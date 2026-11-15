@@ -9,6 +9,7 @@ import (
 // trapBan is one entry of the trap-ban table.
 type trapBan struct {
 	expires time.Time
+	set     time.Time
 	// rule is the trap rule that caused the ban.
 	rule *rule
 }
@@ -58,6 +59,25 @@ func (t *trapTable) add(ip netip.Addr, ban trapBan, now time.Time) {
 	}
 
 	t.bans[key] = ban
+}
+
+// removeIf removes the ban on ip when it is still the ban set at set, and
+// reports whether it did. A concurrent request can replace the ban after a
+// lookup; the new ban must stay.
+func (t *trapTable) removeIf(ip netip.Addr, set time.Time) bool {
+	key := ip.As16()
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	ban, ok := t.bans[key]
+	if !ok || !ban.set.Equal(set) {
+		return false
+	}
+
+	delete(t.bans, key)
+
+	return true
 }
 
 // lookup returns the live ban for ip, if any.

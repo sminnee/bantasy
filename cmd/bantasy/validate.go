@@ -28,6 +28,7 @@ const (
 	actionAllow  = "allow"
 	actionBanIP  = "ban-ip"
 	actionSignal = "signal"
+	actionPardon = "pardon"
 )
 
 const (
@@ -256,6 +257,14 @@ func checkLine(line []byte) (string, error) {
 
 	switch r.Action {
 	case "", actionBlock, actionAllow, actionBanIP:
+	case actionPardon:
+		if r.Kind != kindIP {
+			return "", errors.New("pardon needs kind ip")
+		}
+
+		if r.Added == nil {
+			return "", errors.New("pardon needs added")
+		}
 	default:
 		return "action " + r.Action, nil
 	}
