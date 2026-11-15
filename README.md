@@ -66,14 +66,13 @@ A tool that has only evidence appends a `signal` rule instead. A ConfigMap canno
 
 `cmd/bantasy` is a writer. It adds, removes, lists and prunes rules in rule files and ConfigMap keys, and checks local rule files. It ships with the plugin's git tags.
 
-Install the latest release, or a pinned one:
+Install the latest release:
 
 ```sh
 go install github.com/sminnee/bantasy/cmd/bantasy@latest
-go install github.com/sminnee/bantasy/cmd/bantasy@v0.0.2
 ```
 
-`@latest` is the highest release tag. Run the same command again to upgrade. `go version -m "$(command -v bantasy)"` shows the installed version.
+`@latest` is the highest release tag. To pin a release, put its tag in place of `latest`. Run the same command again to upgrade. `go version -m "$(command -v bantasy)"` shows the installed version.
 
 ```
 bantasy [global flags] <command> [args] [flags]
@@ -144,12 +143,14 @@ The CLI reads each ConfigMap, then writes it back with `kubectl replace` and the
 
 ### A wrapper for one cluster
 
-Pin the tag and the context in a script:
+Pin the context in a script:
 
 ```sh
 #!/bin/sh
-exec go run github.com/sminnee/bantasy/cmd/bantasy@v0.0.2 --context prod-cluster "$@"
+exec go run github.com/sminnee/bantasy/cmd/bantasy@latest --context prod-cluster "$@"
 ```
+
+To make each run use the same code, put a release tag in place of `latest`.
 
 The script uses the default targets. Do not pin both ConfigMaps with `--configmap`: then `add` writes to both.
 
@@ -228,7 +229,7 @@ experimental:
   plugins:
     bantasy:
       moduleName: github.com/sminnee/bantasy
-      version: v0.0.2
+      version: vX.Y.Z # a release tag of this repo
 volumes:
   - name: bantasy-static
     mountPath: /etc/bantasy/static
