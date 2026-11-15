@@ -20,6 +20,8 @@ echo '{"kind":"ip","match":"203.0.113.7","reason":"credential stuffing","source"
 
 JSON is used, not YAML, because Traefik plugins can use only the Go standard library, and it has no YAML parser. A Kubernetes ConfigMap replaces its whole value on each write. So a writer to a ConfigMap reads, edits and replaces the value. The append helps local files and scripts most.
 
+The CLI, `cmd/bantasy`, is the reference writer for ConfigMaps. The README describes it.
+
 ### Fields
 
 | Field | Required | Meaning |
