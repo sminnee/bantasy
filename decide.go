@@ -12,11 +12,17 @@ const actionTrapBan = "trap-ban"
 type decision struct {
 	action string
 	rule   *rule
+	// lift is set when a pardon rule lifts the client's trap ban, lifted.
+	// The caller removes the ban; action and rule are then the outcome as
+	// if there was no ban.
+	lift   *rule
+	lifted trapBan
 }
 
 // decide applies the evaluation order: allow rules of every kind, then ip
-// rules, then the trap-ban table, then path, user-agent and referrer rules.
-// It has no side effects: the caller sets a trap ban on ban-ip.
+// rules, then the trap-ban table, where a pardon can lift the ban, then
+// path, user-agent and referrer rules. It has no side effects: the caller sets a trap ban on ban-ip, and removes
+// one on lift.
 func decide(c *compiled, traps *trapTable, req request, now time.Time) decision {
 	r := c.match(req)
 
@@ -24,13 +30,22 @@ func decide(c *compiled, traps *trapTable, req request, now time.Time) decision 
 		return decision{action: r.Action, rule: r}
 	}
 
+	d := decision{}
+
 	if ban, ok := traps.lookup(req.ip, now); ok {
-		return decision{action: actionTrapBan, rule: ban.rule}
+		p := c.pardoned(req.ip, ban.set, now)
+		if p == nil {
+			return decision{action: actionTrapBan, rule: ban.rule}
+		}
+
+		d.lift = p
+		d.lifted = ban
 	}
 
-	if r == nil {
-		return decision{}
+	if r != nil {
+		d.action = r.Action
+		d.rule = r
 	}
 
-	return decision{action: r.Action, rule: r}
+	return d
 }

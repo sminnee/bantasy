@@ -28,6 +28,7 @@ A rule file holds one JSON rule per line:
 | `block` (default) | Return the block response. |
 | `allow` | Pass the request. An allow rule beats every other rule and every trap ban. |
 | `ban-ip` | Block, and give the client IP a trap ban for `banSeconds` (default: `trapBanSeconds`). An `ip` rule with `ban-ip` only blocks. |
+| `pardon` | Lift the trap bans on a matching IP that were set before `added`. Only kind `ip`; `added` is required. See "Trap bans". |
 | `signal` | None. The rule is evidence for other tools. |
 
 bantasy ignores a rule of a kind or action it does not know, such as kind `email-domain` or action `smartypants:block-signup`. Other tools can keep their records in the same files.
@@ -38,7 +39,7 @@ Optional fields: `id`, `cause` (the `id` of the rule or signal that led to this 
 
 1. Allow rules of every kind.
 2. `ip` rules.
-3. Trap bans.
+3. Trap bans. A pardon lifts a trap ban here, and evaluation goes on to step 4.
 4. `path`, then `user-agent`, then `referrer` rules.
 
 The first match decides.
@@ -166,6 +167,14 @@ For each trap ban, bantasy logs one JSON line to stdout:
 {"plugin":"bantasy","event":"trap","clientIp":"192.0.2.20","id":"repo:php-probe","banSeconds":86400,"expires":"2026-11-16T03:00:00Z","reason":"PHP scanner","middleware":"bantasy@file"}
 ```
 
+To undo a trap ban, add a pardon to a rule file, usually the dynamic rule file. Set `added` to the current time:
+
+```jsonl
+{"id":"ops:pardon:192.0.2.20","kind":"ip","match":"192.0.2.20","action":"pardon","added":"2026-11-15T03:00:00.123456789Z"}
+```
+
+At the next request from the IP, bantasy removes each trap ban set before `added`, and logs a `pardon` line with the pardon's `id` and the trap rule's `id` in `cause`. A later trap rule match bans the IP again, so you can test a trap more than once. A pardon with an `added` more than 5 minutes after the pod's clock lifts nothing, and bantasy logs a warning when it loads. A pardon does not lift an `ip` block rule: remove its line instead. [ADR 0002](docs/adr/0002-pardon-and-default-rule-files.md) gives the reasons.
+
 To make a trap ban shared and lasting, an external writer can turn this line into a ban in a rule file, with `cause` set to the trap rule's `id`.
 
 ## Log lines
@@ -179,6 +188,12 @@ A block, when `logBlocks` is on:
 ```
 
 A block by a trap ban has `action` `trap-ban`, no `id`, `kind` or `match`, and the trap rule's `id` in `cause`. The trap line is shown under "Trap bans".
+
+A pardon:
+
+```json
+{"plugin":"bantasy","event":"pardon","middleware":"bantasy@file","clientIp":"192.0.2.20","id":"ops:pardon:192.0.2.20","cause":"repo:php-probe"}
+```
 
 A rule-file problem has `level` (`info`, `warn` or `error`), `file` and `msg`.
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +14,7 @@ import (
 
 type handlerFixture struct {
 	b      *Bantasy
+	path   string
 	clock  *fakeClock
 	logs   interface{ String() string }
 	passed int
@@ -23,11 +25,11 @@ func newFixture(t *testing.T, rules string, configure func(*Config)) *handlerFix
 
 	f := &handlerFixture{clock: &fakeClock{t: t0}, logs: captureLog(t)}
 
-	path := tempPath(t, "rules.jsonl")
-	writeFile(t, path, rules)
+	f.path = tempPath(t, "rules.jsonl")
+	writeFile(t, f.path, rules)
 
 	cfg := CreateConfig()
-	cfg.Files = []string{path}
+	cfg.Files = []string{f.path}
 
 	if configure != nil {
 		configure(cfg)
@@ -195,6 +197,50 @@ func TestServeTrapBan(t *testing.T) {
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("block lines:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+func TestServePardon(t *testing.T) {
+	// The trap rule's ban is shorter than the first ban, so add alone would
+	// keep the old entry.
+	f := newFixture(t, `{"id":"bad-bot","kind":"user-agent","match":"BadBot","action":"ban-ip"}
+{"id":"short-bot","kind":"user-agent","match":"ShortBot","action":"ban-ip","banSeconds":60}
+`, nil)
+	ip := netip.MustParseAddr("192.0.2.1")
+
+	if rec := f.serve("192.0.2.1:1", "/", map[string]string{"User-Agent": "BadBot/1.0"}); rec.Code != http.StatusForbidden {
+		t.Fatalf("trap: code %d, want 403", rec.Code)
+	}
+
+	f.clock.advance(5 * time.Second)
+	appendFile(t, f.path, `{"id":"ops:pardon","kind":"ip","match":"192.0.2.1","action":"pardon","added":"`+
+		f.clock.now().Format(time.RFC3339Nano)+`"}`+"\n")
+	f.clock.advance(10 * time.Second)
+
+	// The first request after the pardon hits a trap rule: the old ban is
+	// lifted and a new one is set.
+	if rec := f.serve("192.0.2.1:1", "/", map[string]string{"User-Agent": "ShortBot/1.0"}); rec.Code != http.StatusForbidden {
+		t.Fatalf("trap after pardon: code %d, want 403", rec.Code)
+	}
+
+	ban, ok := f.b.traps.lookup(ip, f.clock.now())
+	if !ok || ban.rule.ID != "short-bot" {
+		t.Fatalf("ban after pardon = %+v, %v; want the short-bot ban", ban, ok)
+	}
+
+	if rec := f.serve("192.0.2.1:1", "/", nil); rec.Code != http.StatusForbidden {
+		t.Errorf("clean request after new trap: code %d, want 403", rec.Code)
+	}
+
+	pardons := logEvents(t, f.logs.String(), "pardon")
+	if len(pardons) != 1 || pardons[0]["clientIp"] != "192.0.2.1" || pardons[0]["id"] != "ops:pardon" || pardons[0]["cause"] != "bad-bot" {
+		t.Errorf("pardon lines = %v", pardons)
+	}
+
+	f.clock.advance(60 * time.Second)
+
+	if rec := f.serve("192.0.2.1:1", "/", nil); rec.Code != http.StatusOK {
+		t.Errorf("after the new ban expires: code %d, want 200", rec.Code)
 	}
 }
 

@@ -23,10 +23,16 @@ const (
 // Rule actions that bantasy applies. bantasy ignores every other action,
 // such as "signal".
 const (
-	actionBlock = "block"
-	actionAllow = "allow"
-	actionBanIP = "ban-ip"
+	actionBlock  = "block"
+	actionAllow  = "allow"
+	actionBanIP  = "ban-ip"
+	actionPardon = "pardon"
 )
+
+// pardonSkew is how far a pardon's added time can be after the clock. A
+// pardon with a later added lifts nothing: else a wrong added (a typo, a bad
+// clock) would lift every trap ban on its range until that time.
+const pardonSkew = 5 * time.Minute
 
 // maxBanSeconds (100 years) keeps a ban time well inside time.Duration.
 const maxBanSeconds = 100 * 365 * 24 * 3600
@@ -124,22 +130,8 @@ func parseRule(line []byte) (*rule, string, error) {
 		return nil, "kind " + r.Kind, nil
 	}
 
-	if r.Action == "" {
-		r.Action = actionBlock
-	}
-
-	// Signals and actions that bantasy does not know (such as a third
-	// party's "smartypants:block-signup") are records for other tools.
-	switch r.Action {
-	case actionBlock, actionAllow:
-	case actionBanIP:
-		// An ip rule already blocks every request from its range, so a
-		// trap ban would add nothing.
-		if r.Kind == kindIP {
-			r.Action = actionBlock
-		}
-	default:
-		return nil, "action " + r.Action, nil
+	if ignored, err := normalizeAction(r); ignored != "" || err != nil {
+		return nil, ignored, err
 	}
 
 	if r.Match == "" {
@@ -155,6 +147,39 @@ func parseRule(line []byte) (*rule, string, error) {
 	}
 
 	return r, "", nil
+}
+
+// normalizeAction sets the default action, validates it for the rule's
+// kind, and makes ban-ip on an ip rule a block. It returns the reason the
+// rule is ignored, or an error.
+func normalizeAction(r *rule) (string, error) {
+	if r.Action == "" {
+		r.Action = actionBlock
+	}
+
+	// Signals and actions that bantasy does not know (such as a third
+	// party's "smartypants:block-signup") are records for other tools.
+	switch r.Action {
+	case actionBlock, actionAllow:
+	case actionBanIP:
+		// An ip rule already blocks every request from its range, so a
+		// trap ban would add nothing.
+		if r.Kind == kindIP {
+			r.Action = actionBlock
+		}
+	case actionPardon:
+		if r.Kind != kindIP {
+			return "", errors.New("pardon needs kind ip")
+		}
+
+		if r.Added == nil {
+			return "", errors.New("pardon needs added")
+		}
+	default:
+		return "action " + r.Action, nil
+	}
+
+	return "", nil
 }
 
 func knownKind(kind string) bool {
@@ -216,6 +241,8 @@ func (l *ruleList) add(r *rule) {
 type compiled struct {
 	allow ruleList
 	block ruleList
+	// pardons apply only to trap bans, so they are in neither allow nor block.
+	pardons []*rule
 	// nextExpiry is the earliest future expires of any rule, or zero. When
 	// the clock passes it, the rule set recompiles.
 	nextExpiry time.Time
@@ -236,9 +263,12 @@ func compile(rules []*rule, now time.Time) *compiled {
 			}
 		}
 
-		if r.Action == actionAllow {
+		switch r.Action {
+		case actionPardon:
+			c.pardons = append(c.pardons, r)
+		case actionAllow:
 			c.allow.add(r)
-		} else {
+		default:
 			c.block.add(r)
 		}
 	}
@@ -247,6 +277,23 @@ func compile(rules []*rule, now time.Time) *compiled {
 	c.block.ip = newIPIndex(c.block.ipRules)
 
 	return c
+}
+
+// pardoned returns the pardon rule that lifts a trap ban on ip set at set,
+// or nil. A pardon lifts only bans set before its added time, so a later
+// trap bans the IP again. A pardon with added more than pardonSkew after now
+// lifts nothing. Pardons are few, and this runs only on a trap-ban
+// hit, so a linear scan is enough.
+func (c *compiled) pardoned(ip netip.Addr, set, now time.Time) *rule {
+	latest := now.Add(pardonSkew)
+
+	for _, r := range c.pardons {
+		if r.prefix.Contains(ip) && set.Before(*r.Added) && !r.Added.After(latest) {
+			return r
+		}
+	}
+
+	return nil
 }
 
 // request is the part of an HTTP request that rules match on. ua and

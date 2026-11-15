@@ -12,7 +12,7 @@ _Avoid_: ruleset (one word); snapshot, which names the compiled form inside a ru
 **Kind**: what a rule matches: `ip`, `path`, `user-agent` or `referrer`.
 _Avoid_: type.
 
-**Action**: what happens when a rule matches: `block`, `allow`, `ban-ip` or `signal`. The default is `block`. A third-party action has a source prefix, such as `smartypants:block-signup`; bantasy ignores it.
+**Action**: what happens when a rule matches: `block`, `allow`, `ban-ip`, `pardon` or `signal`. The default is `block`. A third-party action has a source prefix, such as `smartypants:block-signup`; bantasy ignores it.
 
 **Ban**: a rule with action `block` and a kind of `ip`, usually with an `expires`.
 _Avoid_: blacklist, denylist entry.
@@ -23,8 +23,11 @@ _Avoid_: whitelist.
 **Trap rule**: a rule with action `ban-ip`. A match blocks the request and gives the client IP a trap ban.
 _Avoid_: fail2ban rule, honeypot.
 
-**Trap ban**: an entry in the in-memory trap-ban table. It blocks every request from one client IP until it expires. Each Traefik pod has its own table, and a restart clears it.
+**Trap ban**: an entry in the in-memory trap-ban table. It blocks every request from one client IP until it expires or a pardon lifts it. Each Traefik pod has its own table, and a restart clears it.
 _Avoid_: temporary ban, jail.
+
+**Pardon**: an `ip` rule with action `pardon` and a required `added`. It lifts each trap ban on a matching IP that was set before its `added`. A later trap ban on the same IP stays. It does not lift a ban.
+_Avoid_: unban rule, whitelist.
 
 **Static rule file**: the default rule file kept in a repo: key `static.jsonl` of ConfigMap `traefik/bantasy-static`, at `/etc/bantasy/static/static.jsonl`.
 

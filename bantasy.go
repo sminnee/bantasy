@@ -120,6 +120,10 @@ func (b *Bantasy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	in := newRequest(ip, matchURI(req), req.UserAgent(), req.Referer())
 	d := decide(b.rules.current(), b.traps, in, b.now())
 
+	if d.lift != nil {
+		b.pardon(ip, d)
+	}
+
 	switch d.action {
 	case "", actionAllow:
 		b.next.ServeHTTP(rw, req)
@@ -142,7 +146,7 @@ func (b *Bantasy) trap(ip netip.Addr, r *rule) {
 	}
 
 	now := b.now()
-	b.traps.add(ip, trapBan{expires: now.Add(d), rule: r}, now)
+	b.traps.add(ip, trapBan{expires: now.Add(d), set: now, rule: r}, now)
 
 	logEvent(map[string]any{
 		"event":      "trap",
@@ -152,6 +156,23 @@ func (b *Bantasy) trap(ip netip.Addr, r *rule) {
 		"reason":     r.Reason,
 		"banSeconds": int(d / time.Second),
 		"expires":    now.Add(d).UTC().Format(time.RFC3339),
+	})
+}
+
+// pardon removes ip's lifted trap ban and logs a pardon line. It runs before
+// trap: add keeps an existing entry with a later expiry, and that entry's old
+// set time would let the pardon lift the new ban too.
+func (b *Bantasy) pardon(ip netip.Addr, d decision) {
+	if !b.traps.removeIf(ip, d.lifted.set) {
+		return
+	}
+
+	logEvent(map[string]any{
+		"event":      "pardon",
+		"middleware": b.name,
+		"clientIp":   ip.String(),
+		"id":         d.lift.ID,
+		"cause":      d.lifted.rule.ID,
 	})
 }
 

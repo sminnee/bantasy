@@ -92,7 +92,7 @@ func (rs *ruleSet) refresh(now time.Time) {
 
 	if checkFiles {
 		for _, f := range rs.files {
-			if f.check() {
+			if f.check(now) {
 				changed = true
 			}
 		}
@@ -121,7 +121,7 @@ func (rs *ruleSet) refresh(now time.Time) {
 // with one warning at the first check: a missing default file must not
 // pass all traffic in silence. A file that cannot be read keeps its
 // previous rules.
-func (f *ruleFile) check() bool {
+func (f *ruleFile) check(now time.Time) bool {
 	info, err := os.Stat(f.path)
 
 	first := !f.checked
@@ -170,16 +170,28 @@ func (f *ruleFile) check() bool {
 
 	res := parseRules(data)
 	f.rules = res.rules
+	logParse(f.path, res, now)
 
+	return true
+}
+
+// logParse logs the bad lines, the pardons with a future added, and the
+// ignored counts of one parse.
+func logParse(path string, res parseResult, now time.Time) {
 	for _, w := range res.warnings {
-		logWarn(f.path, "skipped rule: "+w)
+		logWarn(path, "skipped rule: "+w)
+	}
+
+	for _, r := range res.rules {
+		if r.Action == actionPardon && r.Added.After(now.Add(pardonSkew)) {
+			logWarn(path, fmt.Sprintf("pardon %q has added in the future; it lifts nothing until %s",
+				r.ID, r.Added.Add(-pardonSkew).UTC().Format(time.RFC3339)))
+		}
 	}
 
 	if len(res.ignored) > 0 {
-		logInfo(f.path, fmt.Sprintf("loaded %d rules, ignored %s", len(res.rules), ignoredSummary(res.ignored)))
+		logInfo(path, fmt.Sprintf("loaded %d rules, ignored %s", len(res.rules), ignoredSummary(res.ignored)))
 	}
-
-	return true
 }
 
 // ignoredSummary writes the ignored counts in a fixed order, such as
