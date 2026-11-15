@@ -1,0 +1,18 @@
+displayName: bantasy
+type: middleware
+
+import: github.com/sminnee/bantasy
+
+summary: Block requests by IP, path, user-agent and referrer rules read from JSONL files, with fail2ban-style trap bans.
+
+testData:
+  files:
+    - /etc/bantasy/patterns.jsonl
+    - /etc/bantasy/bans.jsonl
+  reloadSeconds: 10
+  statusCode: 403
+  body: ""
+  clientIpHeader: X-Real-Ip
+  logBlocks: true
+  trapBanSeconds: 3600
+  trapBanMax: 10000
