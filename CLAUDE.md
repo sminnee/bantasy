@@ -32,9 +32,10 @@ The plugin is one package at the repo root, stdlib only, no `unsafe`, no cgo.
 `cmd/bantasy/` is the rule CLI, a separate `package main`, stdlib only. The plugin never imports it, so Yaegi never loads it, and the Yaegi constraints below do not apply to it.
 
 - `main.go` — `run(args, env)`, flag parse with flags after positionals, exit codes.
-- `commands.go` — `add`, `remove`, `list`, `prune`, `check`; default targets.
+- `commands.go` — `add`, `remove`, `list`, `prune`, `check`, `ipinfo`; default targets.
 - `target.go` — `fileTarget` (atomic rename) and `configMapTarget` (`kubectl get`, then `replace` with the `resourceVersion` it read).
 - `lines.go` — a rule file as lines: `parseLines`, `render`, `prune`, `upsert`, `removeIDs`.
+- `rdap.go` — `rdapClient.lookup` for `ipinfo` (RDAP through rdap.org), `rangeCIDRs`, `vcardField`.
 - `validate.go` — the `add` checks, `parseTTL`, `ruleID`, and `checkLine`, a copy of the plugin's `parseRule`. `testdata/lines.jsonl` and `lines.want` keep the copy in step: change both packages together.
 
 ## Yaegi constraints

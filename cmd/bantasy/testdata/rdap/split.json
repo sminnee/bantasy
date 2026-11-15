@@ -1,0 +1,6 @@
+{
+  "name": "O'BRIEN-NET",
+  "startAddress": "31.0.0.0",
+  "endAddress": "31.2.255.255",
+  "entities": [{"roles": ["technical"], "vcardArray": "not a vcard"}]
+}

@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -610,5 +613,142 @@ func TestCheckLineMatchesTheFixture(t *testing.T) {
 		if got != w[i] {
 			t.Errorf("line %d %s: got %s, want %s (err %v)", i+1, line, got, w[i], err)
 		}
+	}
+}
+
+// rdapServer serves the fixtures in testdata/rdap. Base /ip/104.248.12.56
+// redirects to an ARIN-style path; /ripe is the RIPE registry.
+func rdapServer(t *testing.T) (*httptest.Server, *atomic.Int32) {
+	t.Helper()
+
+	routes := map[string]string{
+		"/arin/ip/104.248.12.56":   "digitalocean.json",
+		"/ip/158.173.167.109":      "ripe-erx.json",
+		"/ripe/ip/158.173.167.109": "ripe-nz.json",
+		"/ip/31.1.2.3":             "split.json",
+		"/ip/32.1.2.3":             "wide.json",
+		"/ip/34.1.2.3":             "no-name.json",
+		"/ip/35.0.0.1":             "bare.json",
+		"/ip/192.88.1.1":           "special.json",
+		"/ip/36.1.2.3":             "reversed.json",
+	}
+
+	var hits atomic.Int32
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+
+		if r.URL.Path == "/ip/104.248.12.56" {
+			http.Redirect(w, r, "/arin/ip/104.248.12.56", http.StatusFound)
+			return
+		}
+
+		name, ok := routes[r.URL.Path]
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+
+		http.ServeFile(w, r, filepath.Join("testdata", "rdap", name))
+	}))
+	t.Cleanup(srv.Close)
+
+	return srv, &hits
+}
+
+func runIpinfoWith(srv *httptest.Server, args ...string) result {
+	var out, errOut bytes.Buffer
+
+	e := env{stdout: &out, stderr: &errOut, now: func() time.Time { return t0 }, rdap: rdapClient{
+		http:       srv.Client(),
+		base:       srv.URL,
+		registries: map[string]string{"RIPE": srv.URL + "/ripe"},
+	}}
+	code := run(args, e)
+
+	return result{code: code, stdout: out.String(), stderr: errOut.String()}
+}
+
+func TestIpinfo(t *testing.T) {
+	srv, _ := rdapServer(t)
+	note := "\nRDAP shows the registrant, not the location or the end user.\n\n"
+
+	cases := []struct{ addr, want string }{
+		{"104.248.12.56", "registry  " + srv.URL + "/arin/ip/104.248.12.56\n" +
+			"name      DIGITALOCEAN-104-248-0-0\n" +
+			"cidr      104.248.0.0/16\n" +
+			"org       DigitalOcean, LLC\n" +
+			"abuse     abuse@digitalocean.com\n" + note +
+			"bantasy add ip 104.248.0.0/16 --reason 'DIGITALOCEAN-104-248-0-0'\n"},
+		{"158.173.167.109", "registry  " + srv.URL + "/ripe/ip/158.173.167.109\n" +
+			"name      AUCKLAND-NZ-158-173-167-0\n" +
+			"cidr      158.173.167.0/24\n" +
+			"country   NZ\n" +
+			"org       Example Ltd\n" +
+			"abuse     abuse@example.net\n" + note +
+			"bantasy add ip 158.173.167.0/24 --reason 'AUCKLAND-NZ-158-173-167-0'\n"},
+		{"31.1.2.3", "registry  " + srv.URL + "/ip/31.1.2.3\n" +
+			"name      O'BRIEN-NET\n" +
+			"cidr      31.0.0.0/15 (too wide for add)\n" +
+			"cidr      31.2.0.0/16\n" + note +
+			`bantasy add ip 31.2.0.0/16 --reason 'O'\''BRIEN-NET'` + "\n"},
+		{"32.1.2.3", "registry  " + srv.URL + "/ip/32.1.2.3\n" +
+			"cidr      32.0.0.0/12 (too wide for add)\n" +
+			"org       Wide Org\n" + note +
+			"# block too wide for add: narrow the CIDR by hand\n"},
+		{"34.1.2.3", "registry  " + srv.URL + "/ip/34.1.2.3\n" +
+			"cidr      34.1.2.0/24\n" +
+			"org       Two?Lines Ltd\n" + note +
+			"bantasy add ip 34.1.2.0/24 --reason 'Two?Lines Ltd'\n"},
+		{"35.0.0.1", "registry  " + srv.URL + "/ip/35.0.0.1\n" +
+			"cidr      35.0.0.0/24\n" + note +
+			"bantasy add ip 35.0.0.0/24 --reason 'RDAP 35.0.0.1'\n"},
+		{"192.88.1.1", "registry  " + srv.URL + "/ip/192.88.1.1\n" +
+			"name      NEAR-6TO4\n" +
+			"cidr      192.88.0.0/16 (not public, not for add)\n" + note +
+			"# block too wide for add: narrow the CIDR by hand\n"},
+	}
+
+	for _, c := range cases {
+		r := runIpinfoWith(srv, "ipinfo", c.addr)
+		if r.code != 0 || r.stdout != c.want {
+			t.Errorf("ipinfo %s: exit %d, stderr %q\n got:\n%s\nwant:\n%s", c.addr, r.code, r.stderr, r.stdout, c.want)
+		}
+	}
+}
+
+func TestIpinfoLookupFailure(t *testing.T) {
+	srv, _ := rdapServer(t)
+
+	for addr, want := range map[string]string{
+		"33.1.2.3": "HTTP 404",
+		"36.1.2.3": `bad address range "36.1.2.255" to "36.1.2.0"`,
+	} {
+		r := runIpinfoWith(srv, "ipinfo", addr)
+		if r.code != 1 || !strings.Contains(r.stderr, want) || r.stdout != "" {
+			t.Errorf("%s: exit %d, stdout %q, stderr %q", addr, r.code, r.stdout, r.stderr)
+		}
+	}
+}
+
+func TestIpinfoRefusesBeforeAnyRequest(t *testing.T) {
+	srv, hits := rdapServer(t)
+
+	for _, args := range [][]string{
+		{"ipinfo", "nope"},
+		{"ipinfo", "104.248.0.0/16"},
+		{"ipinfo", "10.0.0.1"},
+		{"ipinfo", "2001:4860::1%eth0"},
+		{"ipinfo"},
+		{"ipinfo", "104.248.12.56", "158.173.167.109"},
+		{"ipinfo", "104.248.12.56", "--file", "x.jsonl"},
+	} {
+		if r := runIpinfoWith(srv, args...); r.code != 2 {
+			t.Errorf("%q: exit %d, stderr %q", args, r.code, r.stderr)
+		}
+	}
+
+	if n := hits.Load(); n != 0 {
+		t.Errorf("%d requests made", n)
 	}
 }

@@ -23,6 +23,7 @@ Commands:
   list
   prune
   check <file>...
+  ipinfo <address>
 
 Global flags (allowed anywhere):
   --file <path>                         a local rule file (repeatable)
@@ -42,6 +43,7 @@ type env struct {
 	stdout, stderr io.Writer
 	now            func() time.Time
 	kubectl        kubectlFunc
+	rdap           rdapClient
 }
 
 func (e env) outf(format string, a ...any) { _, _ = fmt.Fprintf(e.stdout, format, a...) }
@@ -84,12 +86,13 @@ var commandFlags = map[string][]string{
 	"list":   nil,
 	"prune":  nil,
 	"check":  nil,
+	"ipinfo": nil,
 }
 
 var globalFlags = []string{"file", "configmap", "context"}
 
 func main() {
-	e := env{stdout: os.Stdout, stderr: os.Stderr, now: time.Now, kubectl: execKubectl}
+	e := env{stdout: os.Stdout, stderr: os.Stderr, now: time.Now, kubectl: execKubectl, rdap: defaultRDAPClient()}
 	os.Exit(run(os.Args[1:], e))
 }
 
@@ -130,6 +133,8 @@ func dispatch(cmd string, pos []string, opts *options, e env) error {
 		return runList(pos, opts, e)
 	case "prune":
 		return runPrune(pos, opts, e)
+	case "ipinfo":
+		return runIpinfo(pos, e)
 	default:
 		return runCheck(pos, e)
 	}
@@ -216,7 +221,8 @@ func checkFlags(cmd string, allowed []string, set map[string]bool) error {
 		ok[f] = true
 	}
 
-	if cmd != "check" {
+	// check and ipinfo touch no target.
+	if cmd != "check" && cmd != "ipinfo" {
 		for _, f := range globalFlags {
 			ok[f] = true
 		}
