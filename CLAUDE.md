@@ -1,3 +1,5 @@
+@.claude/CLAUDE.local.md
+
 # bantasy
 
 bantasy is a behaviour-based banning plugin for Traefik: a middleware that blocks requests by rules read from JSONL rule files. `README.md` covers use; `docs/adr/0001-rule-model.md` is the rule-file contract; `CONTEXT.md` is the glossary.
