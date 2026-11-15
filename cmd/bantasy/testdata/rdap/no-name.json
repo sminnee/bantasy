@@ -1,0 +1,5 @@
+{
+  "startAddress": "34.1.2.0",
+  "endAddress": "34.1.2.255",
+  "entities": [{"roles": ["registrant"], "vcardArray": ["vcard", [["fn", {}, "text", "Two\nLines Ltd"]]]}]
+}

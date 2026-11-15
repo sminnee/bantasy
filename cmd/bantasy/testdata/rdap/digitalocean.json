@@ -1,0 +1,33 @@
+{
+  "objectClassName": "ip network",
+  "handle": "NET-104-248-0-0-1",
+  "name": "DIGITALOCEAN-104-248-0-0",
+  "startAddress": "104.248.0.0",
+  "endAddress": "104.248.255.255",
+  "ipVersion": "v4",
+  "cidr0_cidrs": [{"v4prefix": "104.248.0.0", "length": 16}],
+  "entities": [
+    {
+      "handle": "DO-13",
+      "roles": ["registrant"],
+      "vcardArray": ["vcard", [
+        ["version", {}, "text", "4.0"],
+        ["adr", {"label": "105 Edgeview Drive"}, "text", ["", "", "", "", "", "", ""]],
+        ["fn", {}, "text", "DigitalOcean, LLC"],
+        ["kind", {}, "text", "org"]
+      ]],
+      "entities": [
+        {
+          "handle": "DIGIT19-ARIN",
+          "roles": ["abuse"],
+          "vcardArray": ["vcard", [
+            ["version", {}, "text", "4.0"],
+            ["fn", {}, "text", "DigitalOcean Abuse"],
+            ["email", {}, "text", "abuse@digitalocean.com"]
+          ]]
+        }
+      ]
+    }
+  ],
+  "port43": "whois.arin.net"
+}

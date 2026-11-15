@@ -43,4 +43,7 @@ _Avoid_: report, hint.
 **Target**: one rule file that the CLI reads or writes: a local file, or one key of one ConfigMap.
 _Avoid_: destination, store.
 
+**Address block**: a range of IP addresses that one registry record covers.
+_Avoid_: netblock, subnet.
+
 **Cause**: the `id` of the rule or signal that led to a rule or a trap ban. bantasy logs it and does not check it.

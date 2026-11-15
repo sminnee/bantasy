@@ -3,10 +3,12 @@ package main
 import (
 	"errors"
 	"fmt"
+	"net/netip"
 	"os"
 	"strings"
 	"text/tabwriter"
 	"time"
+	"unicode"
 )
 
 const (
@@ -412,4 +414,109 @@ func checkText(text string) []string {
 	}
 
 	return out
+}
+
+func runIpinfo(pos []string, e env) error {
+	if len(pos) != 1 {
+		return usagef("ipinfo needs exactly one address")
+	}
+
+	addr, err := netip.ParseAddr(pos[0])
+	if err != nil {
+		return usagef("not an IP address: %q", pos[0])
+	}
+
+	// normaliseIP refuses a zone and the non-public ranges, which have no
+	// RDAP record.
+	if _, perr := normaliseIP(addr.String()); perr != nil {
+		return &usageError{msg: perr.Error()}
+	}
+
+	n, err := e.rdap.lookup(addr)
+	if err != nil {
+		return err
+	}
+
+	w := tabwriter.NewWriter(e.stdout, 0, 0, 2, ' ', 0)
+	field := func(k, v string) {
+		if v != "" {
+			_, _ = fmt.Fprintf(w, "%s\t%s\n", k, noControl(v))
+		}
+	}
+
+	field("registry", n.url)
+	field("name", n.name)
+
+	var narrow []string
+
+	for _, p := range n.cidrs {
+		if _, err := normaliseIP(p.String()); err != nil {
+			field("cidr", p.String()+" ("+refusal(p)+")")
+			continue
+		}
+
+		field("cidr", p.String())
+		narrow = append(narrow, p.String())
+	}
+
+	field("country", n.country)
+	field("org", n.org)
+	field("abuse", n.abuse)
+
+	if err := w.Flush(); err != nil {
+		return err
+	}
+
+	e.outf("\nRDAP shows the registrant, not the location or the end user.\n\n")
+
+	if len(narrow) == 0 {
+		e.outf("# block too wide for add: narrow the CIDR by hand\n")
+		return nil
+	}
+
+	reason := n.name
+	if reason == "" {
+		reason = n.org
+	}
+
+	if reason == "" {
+		reason = "RDAP " + addr.String()
+	}
+
+	e.outf("bantasy add ip %s --reason %s\n", strings.Join(narrow, " "), shellQuote(noControl(reason)))
+
+	return nil
+}
+
+// refusal says why add refuses p: it overlaps a non-public range, or it is
+// too wide.
+func refusal(p netip.Prefix) string {
+	minBits := minBits6
+	if p.Addr().Is4() {
+		minBits = minBits4
+	}
+
+	if p.Bits() < minBits {
+		return "too wide for add"
+	}
+
+	return "not public, not for add"
+}
+
+// noControl replaces each control character with "?". RDAP text comes from
+// a remote server, and a newline or an escape sequence would break the
+// output or the add command.
+func noControl(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return '?'
+		}
+
+		return r
+	}, s)
+}
+
+// shellQuote quotes s for a POSIX shell.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }

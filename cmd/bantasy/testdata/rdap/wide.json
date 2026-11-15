@@ -1,0 +1,5 @@
+{
+  "startAddress": "32.0.0.0",
+  "endAddress": "32.15.255.255",
+  "entities": [{"roles": ["administrative"], "vcardArray": ["vcard", [["fn", {}, "text", "Wide Org"]]]}]
+}

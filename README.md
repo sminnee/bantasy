@@ -65,7 +65,7 @@ A tool that has only evidence appends a `signal` rule instead. A ConfigMap canno
 
 ## CLI
 
-`cmd/bantasy` is a writer. It adds, removes, lists and prunes rules in rule files and ConfigMap keys, and checks local rule files. It ships with the plugin's git tags.
+`cmd/bantasy` is a writer. It adds, removes, lists and prunes rules in rule files and ConfigMap keys, checks local rule files, and looks up who holds an IP address. It ships with the plugin's git tags.
 
 Install the latest release:
 
@@ -85,6 +85,7 @@ remove <kind> <match>... [--source <s>]
 list
 prune
 check <file>...
+ipinfo <address>
 ```
 
 Examples:
@@ -95,6 +96,7 @@ bantasy add user-agent BadBot --reason scraper --ttl 7d
 bantasy remove ops:ip:203.0.113.7
 bantasy --file bans.jsonl list
 bantasy check patterns.jsonl
+bantasy ipinfo 104.248.12.56
 ```
 
 ### Targets
@@ -118,6 +120,12 @@ A write goes to each target in turn. `list` shows each rule once per target that
 - `list` prints the target, id, kind, match, action, source, cause and expiry of each rule. An expiry is `-` for none and `expired` when past.
 - `prune` drops expired rules.
 - `check` reads local files only. It prints `file:line: reason` for each line that bantasy cannot load, including a last line that does not parse.
+- `ipinfo` asks RDAP (Registration Data Access Protocol) at `https://rdap.org` for the address block of a public address.
+  - It prints the block's CIDRs, name, country, organisation and abuse email, then an `add ip` command that bans the block.
+  - A CIDR that `add` refuses (see the `ip` row below) is marked `(too wide for add)` or `(not public, not for add)`, and left out of the command.
+  - When ARIN answers with an ERX record, such as `RIPE-ERX-…`, `ipinfo` asks the named registry.
+  - The data shows the registrant. It does not show the location, or the customer of a hosting provider.
+  - `ipinfo` takes no global flags.
 
 Each write edits only the lines of its own rules. Every other line keeps its exact text, including bad lines and the rules of other writers. Each write also drops expired rules of any writer, and ends each line with a newline. Blank lines drop.
 

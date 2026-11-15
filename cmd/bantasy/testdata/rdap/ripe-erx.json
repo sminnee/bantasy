@@ -1,0 +1,10 @@
+{
+  "objectClassName": "ip network",
+  "handle": "NET-158-173-0-0-1",
+  "name": "RIPE-ERX-158-173-0-0",
+  "startAddress": "158.173.0.0",
+  "endAddress": "158.173.255.255",
+  "entities": [
+    {"handle": "RIPE", "roles": ["registrant"], "vcardArray": ["vcard", [["fn", {}, "text", "RIPE Network Coordination Centre"]]]}
+  ]
+}
