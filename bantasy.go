@@ -16,6 +16,12 @@ import (
 	"time"
 )
 
+// The static and dynamic rule files. See CONTEXT.md and ADR 0002.
+const (
+	defaultStaticFile  = "/etc/bantasy/static/static.jsonl"
+	defaultDynamicFile = "/etc/bantasy/dynamic/dynamic.jsonl"
+)
+
 // Config is the plugin configuration.
 type Config struct {
 	Files          []string `json:"files,omitempty"`
@@ -31,11 +37,10 @@ type Config struct {
 // CreateConfig returns the default plugin configuration.
 func CreateConfig() *Config {
 	return &Config{
-		Files:          []string{},
 		ReloadSeconds:  10,
 		StatusCode:     http.StatusForbidden,
 		LogBlocks:      true,
-		TrapBanSeconds: 3600,
+		TrapBanSeconds: 28800,
 		TrapBanMax:     10000,
 	}
 }
@@ -71,13 +76,22 @@ func newBantasy(next http.Handler, config *Config, name string, now func() time.
 		return nil, fmt.Errorf("bantasy %s: %w", name, err)
 	}
 
-	s := sharedState(config.Files, time.Duration(config.ReloadSeconds)*time.Second, config.TrapBanMax, now)
+	cfg := *config
+
+	defaulted := len(cfg.Files) == 0
+	if defaulted {
+		// The default is set here, not in CreateConfig, so that no list
+		// merge in Traefik can join it to the user's files.
+		cfg.Files = []string{defaultStaticFile, defaultDynamicFile}
+	}
+
+	s := sharedState(cfg.Files, defaulted, time.Duration(cfg.ReloadSeconds)*time.Second, cfg.TrapBanMax, now)
 
 	b := &Bantasy{
 		next:    next,
 		name:    name,
-		config:  *config,
-		trapBan: time.Duration(config.TrapBanSeconds) * time.Second,
+		config:  cfg,
+		trapBan: time.Duration(cfg.TrapBanSeconds) * time.Second,
 		rules:   s.rules,
 		traps:   s.traps,
 		now:     now,
@@ -88,8 +102,6 @@ func newBantasy(next http.Handler, config *Config, name string, now func() time.
 
 func validate(c *Config) error {
 	switch {
-	case len(c.Files) == 0:
-		return errors.New("files is empty")
 	case c.ReloadSeconds < 0:
 		return errors.New("reloadSeconds is negative")
 	case c.StatusCode < 100 || c.StatusCode > 599:

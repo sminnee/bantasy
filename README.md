@@ -49,7 +49,7 @@ An allow rule on `user-agent` or `referrer` matches a value that any client can 
 
 - The first request after `reloadSeconds` checks the mtime and size of each file. bantasy reparses only a changed file. Other requests use the current rules while it does so.
 - A rule stops matching at its `expires` time, with no file change.
-- A missing file has no rules, and bantasy logs no error. A file that cannot be read keeps its previous rules, and bantasy logs an error.
+- At start, bantasy logs one info line per rule file, `reading rule file`, with `(default)` when `files` is empty. A missing file has no rules, and bantasy logs one warning at its first check, so an unmounted ConfigMap is visible in the log. A file that cannot be read keeps its previous rules, and bantasy logs an error.
 - Bad lines and a last line with no newline follow the reader rules in the ADR. bantasy logs a warning with the file and line number for each bad line.
 
 ## Report a bad actor
@@ -156,7 +156,7 @@ The script uses the default targets. Do not pin both ConfigMaps with `--configma
 
 ## Trap bans
 
-A `ban-ip` match blocks the request and bans the client IP for `banSeconds`. The ban is held in memory. Each Traefik pod has its own trap-ban table, and a restart clears it. The table holds at most `trapBanMax` entries. When it is full, bantasy drops expired entries (at most once a minute), then any one entry.
+A `ban-ip` match blocks the request and bans the client IP for `banSeconds`, or for `trapBanSeconds`. The ban is held in memory. Each Traefik pod has its own trap-ban table, and a restart clears it. The table holds at most `trapBanMax` entries. When it is full, bantasy drops expired entries (at most once a minute), then any one entry.
 
 A trap ban holds one exact address. An IPv6 client can move to another address in its own /64 and escape it.
 
@@ -186,13 +186,13 @@ A rule-file problem has `level` (`info`, `warn` or `error`), `file` and `msg`.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `files` | none (required) | Paths of rule files. |
+| `files` | the static and dynamic rule files | Paths of rule files. Empty: `/etc/bantasy/static/static.jsonl` and `/etc/bantasy/dynamic/dynamic.jsonl`. A list replaces the default. |
 | `reloadSeconds` | `10` | Time between file checks. `0` checks on every request. |
 | `statusCode` | `403` | Status of the block response. |
 | `body` | `""` | Plain-text body of the block response. |
 | `clientIpHeader` | `""` | Header that holds the client IP, such as `X-Real-Ip`. It must hold one value that a trusted proxy sets. bantasy uses its first comma-separated value. Empty, missing or bad: bantasy uses the request's remote address. |
 | `logBlocks` | `true` | Log one JSON line per blocked request. |
-| `trapBanSeconds` | `3600` | Trap-ban time for a `ban-ip` rule with no `banSeconds`. |
+| `trapBanSeconds` | `28800` (8 hours) | Trap-ban time for a `ban-ip` rule with no `banSeconds`. |
 | `trapBanMax` | `10000` | Maximum entries in the trap-ban table. |
 
 All Middlewares with the same `files`, `reloadSeconds` and `trapBanMax` share one rule set and one trap-ban table. A trap on one route bans the IP on all of them.
@@ -201,7 +201,7 @@ Traefik replaces `X-Real-Ip` with the remote address unless the entry point trus
 
 ## Kubernetes example
 
-Two ConfigMaps in the `traefik` namespace: `bantasy-static` holds rules kept in a repo, and `bantasy-dynamic` holds rules that tools write. These are the CLI's default targets.
+Two ConfigMaps in the `traefik` namespace, with the default names: `bantasy-static` holds the static rule file, kept in a repo. `bantasy-dynamic` holds the dynamic rule file, which people and the CLI write.
 
 ```yaml
 apiVersion: v1
@@ -250,11 +250,10 @@ metadata:
 spec:
   plugin:
     bantasy:
-      files:
-        - /etc/bantasy/static/static.jsonl
-        - /etc/bantasy/dynamic/dynamic.jsonl
       clientIpHeader: X-Real-Ip
 ```
+
+The Middleware sets no `files`, so bantasy reads the two default paths.
 
 The kubelet updates a mounted ConfigMap within about a minute of a write. bantasy picks up the change at its next check.
 

@@ -28,8 +28,17 @@ func TestRuleSetMissingFile(t *testing.T) {
 		t.Errorf("missing file matched %q", got)
 	}
 
+	if !strings.Contains(logs.String(), "rule file does not exist") {
+		t.Errorf("missing file: no warning in %s", logs)
+	}
+
+	// Only the first check warns.
+	logs.Reset()
+	clock.advance(10 * time.Second)
+	ruleSetMatch(rs, "192.0.2.1")
+
 	if logs.Len() != 0 {
-		t.Errorf("missing file logged: %s", logs)
+		t.Errorf("second check of a missing file logged: %s", logs)
 	}
 
 	// The file appears later.

@@ -14,6 +14,7 @@ import (
 // ruleFile is the state of one rule file at its last check.
 type ruleFile struct {
 	path    string
+	checked bool
 	exists  bool
 	modTime time.Time
 	size    int64
@@ -116,18 +117,27 @@ func (rs *ruleSet) refresh(now time.Time) {
 }
 
 // check stats the file and reparses it when its mtime or size changed. It
-// reports whether the file's rules changed. A missing file has no rules. A
-// file that cannot be read keeps its previous rules.
+// reports whether the file's rules changed. A missing file has no rules,
+// with one warning at the first check: a missing default file must not
+// pass all traffic in silence. A file that cannot be read keeps its
+// previous rules.
 func (f *ruleFile) check() bool {
 	info, err := os.Stat(f.path)
 
+	first := !f.checked
+	f.checked = true
+
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
+		if first {
+			logWarn(f.path, "rule file does not exist; it has no rules until it is made")
+		}
+
 		if !f.exists {
 			return false
 		}
 
-		*f = ruleFile{path: f.path, parses: f.parses}
+		*f = ruleFile{path: f.path, checked: true, parses: f.parses}
 
 		return true
 	case err != nil:
