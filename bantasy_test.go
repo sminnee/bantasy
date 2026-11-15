@@ -309,12 +309,57 @@ func TestNewSharesRuleSet(t *testing.T) {
 	}
 }
 
+func TestNewDefaults(t *testing.T) {
+	logs := captureLog(t)
+
+	cfg := CreateConfig()
+	if cfg.TrapBanSeconds != 28800 {
+		t.Errorf("trapBanSeconds = %d, want 28800", cfg.TrapBanSeconds)
+	}
+
+	loaded := func(files []string) string {
+		c := CreateConfig()
+		c.Files = files
+		// A reloadSeconds no other test uses gives a new shared state, so
+		// the info lines are logged.
+		c.ReloadSeconds = 7
+
+		b, err := newBantasy(http.NotFoundHandler(), c, "x", time.Now)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		paths := make([]string, 0, len(b.rules.files))
+		for _, f := range b.rules.files {
+			paths = append(paths, f.path)
+		}
+
+		return strings.Join(paths, " ")
+	}
+
+	if got, want := loaded(nil), "/etc/bantasy/static/static.jsonl /etc/bantasy/dynamic/dynamic.jsonl"; got != want {
+		t.Errorf("no files: loads %q, want %q", got, want)
+	}
+
+	if got := loaded([]string{"/x/rules.jsonl"}); got != "/x/rules.jsonl" {
+		t.Errorf("a files list: loads %q, want only that list", got)
+	}
+
+	for _, want := range []string{
+		`"file":"/etc/bantasy/static/static.jsonl","level":"info","msg":"reading rule file (default)"`,
+		`"file":"/x/rules.jsonl","level":"info","msg":"reading rule file"`,
+	} {
+		if !strings.Contains(logs.String(), want) {
+			t.Errorf("no log line with %s in:\n%s", want, logs)
+		}
+	}
+}
+
 func TestNewValidatesConfig(t *testing.T) {
 	tests := []struct {
 		name string
 		edit func(*Config)
 	}{
-		{"no files", func(c *Config) { c.Files = nil }},
 		{"bad status", func(c *Config) { c.StatusCode = 99 }},
 		{"negative reload", func(c *Config) { c.ReloadSeconds = -1 }},
 		{"zero trapBanSeconds", func(c *Config) { c.TrapBanSeconds = 0 }},

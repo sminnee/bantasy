@@ -26,6 +26,10 @@ _Avoid_: fail2ban rule, honeypot.
 **Trap ban**: an entry in the in-memory trap-ban table. It blocks every request from one client IP until it expires. Each Traefik pod has its own table, and a restart clears it.
 _Avoid_: temporary ban, jail.
 
+**Static rule file**: the default rule file kept in a repo: key `static.jsonl` of ConfigMap `traefik/bantasy-static`, at `/etc/bantasy/static/static.jsonl`.
+
+**Dynamic rule file**: the default rule file written at run time, by the bantasy CLI or another writer: key `dynamic.jsonl` of ConfigMap `traefik/bantasy-dynamic`, at `/etc/bantasy/dynamic/dynamic.jsonl`.
+
 **Signal**: a rule with action `signal`. It is evidence for other tools. bantasy ignores it.
 _Avoid_: report, hint.
 

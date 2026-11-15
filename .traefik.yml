@@ -7,12 +7,12 @@ summary: Block requests by IP, path, user-agent and referrer rules read from JSO
 
 testData:
   files:
-    - /etc/bantasy/patterns.jsonl
-    - /etc/bantasy/bans.jsonl
+    - /etc/bantasy/static/static.jsonl
+    - /etc/bantasy/dynamic/dynamic.jsonl
   reloadSeconds: 10
   statusCode: 403
   body: ""
   clientIpHeader: X-Real-Ip
   logBlocks: true
-  trapBanSeconds: 3600
+  trapBanSeconds: 28800
   trapBanMax: 10000
