@@ -2,3 +2,4 @@
 .drafts/
 .claude/settings.local.json
 .env
+AGENTS.md
