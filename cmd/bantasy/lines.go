@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"net/netip"
 	"strings"
 	"time"
 )
@@ -151,4 +152,44 @@ func removeIDs(lines []line, ids []string) ([]line, map[string]bool) {
 	}
 
 	return out, found
+}
+
+// isIPBlock reports whether l is a ban: an ip rule with action "" or block.
+func (l line) isIPBlock() bool {
+	return l.rec != nil && l.rec.Kind == kindIP && (l.rec.Action == "" || l.rec.Action == actionBlock)
+}
+
+// blocksIP reports whether l blocks its match: a ban, or an ip trap rule.
+func (l line) blocksIP() bool {
+	return l.isIPBlock() || l.rec != nil && l.rec.Kind == kindIP && l.rec.Action == actionBanIP
+}
+
+// label is the id of l, or its text when it has no id.
+func (l line) label() string {
+	if id := l.id(); id != "" {
+		return id
+	}
+
+	return l.text
+}
+
+// removeIPBlocks drops the bans whose match is p, of any id. It returns the
+// label of each line it dropped.
+func removeIPBlocks(lines []line, p netip.Prefix) ([]line, []string) {
+	out := make([]line, 0, len(lines))
+
+	var removed []string
+
+	for _, l := range lines {
+		if l.isIPBlock() {
+			if q, err := parseIPMatch(l.rec.Match); err == nil && q == p {
+				removed = append(removed, l.label())
+				continue
+			}
+		}
+
+		out = append(out, l)
+	}
+
+	return out, removed
 }

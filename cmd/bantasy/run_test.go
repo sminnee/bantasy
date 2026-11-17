@@ -155,9 +155,13 @@ type result struct {
 }
 
 func runWith(f *fakeKubectl, args ...string) result {
+	return runAt(f, t0, args...)
+}
+
+func runAt(f *fakeKubectl, at time.Time, args ...string) result {
 	var out, errOut bytes.Buffer
 
-	e := env{stdout: &out, stderr: &errOut, now: func() time.Time { return t0 }, kubectl: f.run}
+	e := env{stdout: &out, stderr: &errOut, now: func() time.Time { return at }, kubectl: f.run}
 	code := run(args, e)
 
 	return result{code: code, stdout: out.String(), stderr: errOut.String()}
@@ -318,6 +322,10 @@ func TestRefusesBeforeAnyRead(t *testing.T) {
 		{2, "needs --reason", []string{"add", "ip", "45.33.32.7"}},
 		{2, "exactly one match", []string{"add", "ip", "45.33.32.7", "45.33.32.8", "--reason", "r", "--id", "x"}},
 		{2, "at least one match", []string{"add", "ip"}},
+		{2, "unban needs at least one ip", []string{"unban"}},
+		{1, "not an IP address", []string{"unban", "nope"}},
+		{2, "does not take --id", []string{"unban", "45.33.32.7", "--id", "x"}},
+		{1, "use bantasy unban", []string{"add", "ip", "45.33.32.7", "--reason", "r", "--action", "pardon"}},
 		{2, "does not take --reason", []string{"list", "--reason", "r"}},
 		{2, "unknown command", []string{"frob"}},
 		{2, "no command", []string{}},
@@ -750,5 +758,124 @@ func TestIpinfoRefusesBeforeAnyRequest(t *testing.T) {
 
 	if n := hits.Load(); n != 0 {
 		t.Errorf("%d requests made", n)
+	}
+}
+
+func TestUnbanWritesAPardonAndRemovesBans(t *testing.T) {
+	ours := `{"id":"ops:ip:45.33.32.7","kind":"ip","match":"45.33.32.7","source":"ops"}`
+	theirs := `{"id":"waf:ip:45.33.32.7/32","kind":"ip","match":"45.33.32.7/32","action":"block"}`
+	cidr := `{"kind":"ip","match":"81.2.69.0/24"}`
+	allow := `{"id":"x","kind":"ip","match":"45.33.32.7","action":"allow"}`
+	other := `{"id":"ops:ip:45.33.32.8","kind":"ip","match":"45.33.32.8"}`
+	f := newFake(t)
+	f.put(dynamic, map[string]string{dynKey: jsonl(ours, other, theirs, cidr, allow, foreign[1], foreign[2])})
+
+	at := t0.Add(123456789 * time.Nanosecond)
+
+	r := runAt(f, at, "unban", "45.33.32.7", "81.2.69.0/24", "45.33.32.7/32", "--reason", "test the trap")
+	if r.code != 0 || r.stderr != "" {
+		t.Fatalf("exit %d, stderr %q", r.code, r.stderr)
+	}
+
+	for _, label := range []string{"ops:ip:45.33.32.7", "waf:ip:45.33.32.7/32", cidr} {
+		if !strings.Contains(r.stdout, "removed "+label+"\n") {
+			t.Errorf("stdout %q does not name %s", r.stdout, label)
+		}
+	}
+
+	pardon := func(match, added, expires string) string {
+		return `{"id":"ops:pardon:` + match + `","kind":"ip","match":"` + match + `","action":"pardon",` +
+			`"reason":"test the trap","source":"ops","added":"` + added + `","expires":"` + expires + `"}`
+	}
+	one := pardon("45.33.32.7", "2026-11-15T03:00:00.123456789Z", "2026-11-16T03:00:00.123456789Z")
+	block := pardon("81.2.69.0/24", "2026-11-15T03:00:00.123456789Z", "2026-11-16T03:00:00.123456789Z")
+
+	if got := f.lines(); !equal(got, []string{other, allow, foreign[1], foreign[2], one, block}) {
+		t.Fatalf("lines = %q", got)
+	}
+
+	if reason, err := checkLine([]byte(one)); reason != "" || err != nil {
+		t.Errorf("checkLine: %q, %v", reason, err)
+	}
+
+	// A second unban renews added, so it lifts the bans set since the first.
+	if r := runAt(f, at.Add(time.Hour), "unban", "45.33.32.7", "--reason", "test the trap"); r.code != 0 {
+		t.Fatalf("exit %d: %s", r.code, r.stderr)
+	}
+
+	renewed := pardon("45.33.32.7", "2026-11-15T04:00:00.123456789Z", "2026-11-16T04:00:00.123456789Z")
+	if got := f.lines(); !equal(got, []string{other, allow, foreign[1], foreign[2], block, renewed}) {
+		t.Errorf("lines = %q", got)
+	}
+}
+
+func TestUnbanTTLNever(t *testing.T) {
+	f := newFake(t)
+	mustRun(t, f, "unban", "45.33.32.7", "--ttl", "never")
+
+	if r := decode(t, f.lines()[0]); r["expires"] != nil {
+		t.Errorf("expires = %v", r["expires"])
+	}
+}
+
+// A trap can ban any client IP, so unban takes the ranges that add refuses.
+func TestUnbanTakesAnyRange(t *testing.T) {
+	f := newFake(t)
+	mustRun(t, f, "unban", "10.0.0.1", "192.0.2.0/24", "2001:db8::/16")
+
+	for i, m := range []string{"10.0.0.1", "192.0.2.0/24", "2001::/16"} {
+		if r := decode(t, f.lines()[i]); r["match"] != m {
+			t.Errorf("line %d: match = %v, want %s", i, r["match"], m)
+		}
+	}
+}
+
+func TestUnbanWarnsWhenARuleStillBlocks(t *testing.T) {
+	staticWarn := "unban: warning: " + static + ":static.jsonl: "
+	cases := []struct {
+		name   string
+		setup  func(f *fakeKubectl)
+		stderr string
+	}{
+		{"static block", func(f *fakeKubectl) {
+			f.put(static, map[string]string{"static.jsonl": jsonl(`{"id":"wide","kind":"ip","match":"45.33.32.0/24"}`)})
+		}, staticWarn + "wide still blocks 45.33.32.7\n"},
+		{"expired static block", func(f *fakeKubectl) {
+			f.put(static, map[string]string{"static.jsonl": jsonl(
+				`{"id":"wide","kind":"ip","match":"45.33.32.0/24","expires":"2026-11-15T02:00:00Z"}`)})
+		}, ""},
+		{"dynamic trap rule", func(f *fakeKubectl) {
+			f.put(dynamic, map[string]string{dynKey: jsonl(`{"id":"b","kind":"ip","match":"45.33.32.7","action":"ban-ip"}`)})
+		}, "unban: warning: " + dynamic + ":" + dynKey + ": b still blocks 45.33.32.7\n"},
+		{"no overlap", func(f *fakeKubectl) {
+			f.put(static, map[string]string{"static.jsonl": jsonl(`{"id":"far","kind":"ip","match":"81.2.69.0/24"}`)})
+		}, ""},
+		{"static read fails", func(f *fakeKubectl) {
+			f.getErr[static] = "Error from server (Forbidden)"
+		}, staticWarn + "kubectl get configmap: exit status 1: Error from server (Forbidden); static rules not checked\n"},
+	}
+
+	for _, c := range cases {
+		f := newFake(t)
+		c.setup(f)
+
+		if r := runWith(f, "unban", "45.33.32.7"); r.code != 0 || r.stderr != c.stderr {
+			t.Errorf("%s: exit %d, stderr %q, want %q", c.name, r.code, r.stderr, c.stderr)
+		}
+
+		if got := f.lines(); !strings.Contains(got[len(got)-1], `"ops:pardon:45.33.32.7"`) {
+			t.Errorf("%s: lines = %q", c.name, got)
+		}
+	}
+}
+
+func TestUnbanReadsOnlyTheNamedTargets(t *testing.T) {
+	f := newFake(t)
+	f.put(static, map[string]string{"static.jsonl": jsonl(`{"id":"wide","kind":"ip","match":"45.33.32.0/24"}`)})
+	f.put("ns/cm", map[string]string{"k": ""})
+
+	r := mustRun(t, f, "unban", "45.33.32.7", "--configmap", "ns/cm:k")
+	if r.stderr != "" || !equal(f.writes, []string{"replace ns/cm"}) {
+		t.Errorf("stderr %q, writes %q", r.stderr, f.writes)
 	}
 }

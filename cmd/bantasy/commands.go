@@ -520,3 +520,148 @@ func noControl(s string) string {
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
+
+// pardonID is the id of the pardon for match. It is not ruleID: that is the
+// id of the ban on the same match, and the pardon would replace it.
+func pardonID(source, match string) string {
+	return source + ":" + actionPardon + ":" + match
+}
+
+// runUnban removes the bans with each match and writes a pardon for it.
+func runUnban(pos []string, o *options, e env) error {
+	// Not now(e): a pardon must lift a trap ban set earlier in the same second.
+	at := e.now().UTC()
+
+	matches, prefixes, err := unbanMatches(pos)
+	if err != nil {
+		return err
+	}
+
+	ttl, err := ttlOf(kindIP, o)
+	if err != nil {
+		return err
+	}
+
+	var expires *time.Time
+
+	if ttl > 0 {
+		t := at.Add(ttl)
+		expires = &t
+	}
+
+	edits, err := readTargets(o, e, dynamicRef)
+	if err != nil {
+		return err
+	}
+
+	scan := edits
+	if len(o.files) == 0 && len(o.configMaps) == 0 {
+		scan = append(scan[:len(scan):len(scan)], readStatic(o, e)...)
+	}
+
+	removed := map[*edit][]string{}
+
+	for _, ed := range edits {
+		ed.lines = prune(ed.lines, at)
+
+		for i, m := range matches {
+			var r []string
+
+			ed.lines, r = removeIPBlocks(ed.lines, prefixes[i])
+			removed[ed] = append(removed[ed], r...)
+
+			// removeIDs, not upsert: upsert keeps the old added time, and a
+			// second unban must lift the bans set since the first.
+			id := pardonID(sourceOf(o), m)
+			ed.lines, _ = removeIDs(ed.lines, []string{id})
+			ed.lines = append(ed.lines, newLine(&record{
+				ID: id, Kind: kindIP, Match: m, Action: actionPardon, Reason: o.reason,
+				Source: sourceOf(o), Cause: o.cause, Added: &at, Expires: expires,
+			}))
+		}
+	}
+
+	if err := writeAll("unban", edits, at, e); err != nil {
+		return err
+	}
+
+	for _, ed := range edits {
+		for _, label := range removed[ed] {
+			e.outf("unban: %s: removed %s\n", ed.t.name(), label)
+		}
+	}
+
+	warnStillBlocked(matches, prefixes, scan, e, at)
+
+	return nil
+}
+
+// unbanMatches parses the unban arguments and drops repeats. It returns
+// each match and its prefix. It does not refuse non-public or wide ranges,
+// as add does: a pardon never blocks, and a trap can ban any client IP.
+func unbanMatches(pos []string) ([]string, []netip.Prefix, error) {
+	if len(pos) == 0 {
+		return nil, nil, usagef("unban needs at least one ip or cidr")
+	}
+
+	var (
+		matches  []string
+		prefixes []netip.Prefix
+	)
+
+	seen := map[string]bool{}
+
+	for _, text := range pos {
+		p, err := parseIPMatch(text)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		m := ipMatch(p)
+		if seen[m] {
+			continue
+		}
+
+		seen[m] = true
+		matches = append(matches, m)
+		prefixes = append(prefixes, p)
+	}
+
+	return matches, prefixes, nil
+}
+
+// readStatic reads the static rule file for the unban warnings. A failed
+// read is a warning, not a failure: the unban still has value.
+func readStatic(o *options, e env) []*edit {
+	st, err := readTargets(o, e, staticRef)
+	if err != nil {
+		e.errf("unban: warning: %v; static rules not checked\n", err)
+		return nil
+	}
+
+	return st
+}
+
+// warnStillBlocked prints a warning for each unexpired ban or trap rule in
+// scan that overlaps a match. The static rule file is not pruned, so the
+// expiry check matters there.
+func warnStillBlocked(matches []string, prefixes []netip.Prefix, scan []*edit, e env, at time.Time) {
+	for _, ed := range scan {
+		for _, l := range ed.lines {
+			if l.expired(at) || !l.blocksIP() {
+				continue
+			}
+
+			q, err := parseIPMatch(l.rec.Match)
+			if err != nil {
+				continue
+			}
+
+			for i, p := range prefixes {
+				if p.Overlaps(q) {
+					e.errf("unban: warning: %s: %s still blocks %s\n", ed.t.name(), l.label(), matches[i])
+				}
+			}
+		}
+	}
+}

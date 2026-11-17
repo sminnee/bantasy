@@ -20,6 +20,8 @@ Commands:
                         [--cause <id>] [--source <s>] [--id <id>]
   remove <id>...
   remove <kind> <match>... [--source <s>]
+  unban <ip|cidr>... [--ttl 30m|24h|7d|never] [--reason <text>] [--cause <id>]
+                        [--source <s>]
   list
   prune
   check <file>...
@@ -36,6 +38,9 @@ and list reads that and traefik/bantasy-static:static.jsonl.
 Kinds: ip, path, user-agent, referrer, email-domain.
 Actions: block (default), allow, ban-ip, signal, <source>:<name>.
 --source defaults to ops. --ttl defaults to 24h for ip and to never for other kinds.
+
+unban removes the ip block rules with the match and writes a pardon, which
+lifts the trap bans set before it.
 `
 
 // env is what run needs from the world. Tests replace each part.
@@ -83,6 +88,7 @@ type options struct {
 var commandFlags = map[string][]string{
 	"add":    {"reason", "action", "ttl", "cause", "source", "id"},
 	"remove": {"source"},
+	"unban":  {"reason", "ttl", "cause", "source"},
 	"list":   nil,
 	"prune":  nil,
 	"check":  nil,
@@ -129,6 +135,8 @@ func dispatch(cmd string, pos []string, opts *options, e env) error {
 		return runAdd(pos, opts, e)
 	case "remove":
 		return runRemove(pos, opts, e)
+	case "unban":
+		return runUnban(pos, opts, e)
 	case "list":
 		return runList(pos, opts, e)
 	case "prune":

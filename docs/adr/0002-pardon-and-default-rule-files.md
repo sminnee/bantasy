@@ -62,7 +62,7 @@ The default `trapBanSeconds` is 8 hours (28800), up from 1 hour, as the operator
 
 ### The CLI writes the dynamic rule file
 
-The CLI, `cmd/bantasy`, writes the dynamic rule file by default and never needs to write the static one. Its line check mirrors the plugin's, so it accepts a pardon line with the same rules.
+The CLI, `cmd/bantasy`, writes the dynamic rule file by default and never needs to write the static one. Its line check mirrors the plugin's, so it accepts a pardon line with the same rules. `bantasy unban` writes pardons: it removes the bans with the match and writes a pardon with `added` set to the current time.
 
 ## Consequences
 
