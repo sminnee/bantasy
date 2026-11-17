@@ -71,27 +71,34 @@ func mustPrefixes(texts ...string) []netip.Prefix {
 	return out
 }
 
+// parseIPMatch parses an ip match, an address or a CIDR, as a masked
+// prefix. It refuses an address with a zone.
+func parseIPMatch(text string) (netip.Prefix, error) {
+	text = strings.TrimSpace(text)
+
+	if strings.Contains(text, "/") {
+		p, err := netip.ParsePrefix(text)
+		if err != nil {
+			return netip.Prefix{}, fmt.Errorf("not an IP address or CIDR: %q", text)
+		}
+
+		return p.Masked(), nil
+	}
+
+	a, err := netip.ParseAddr(text)
+	if err != nil || a.Zone() != "" {
+		return netip.Prefix{}, fmt.Errorf("not an IP address or CIDR: %q", text)
+	}
+
+	return netip.PrefixFrom(a, a.BitLen()), nil
+}
+
 // normaliseIP returns the masked network of an address or CIDR: a bare
 // address for one host. It refuses non-public ranges and wide prefixes.
 func normaliseIP(text string) (string, error) {
-	text = strings.TrimSpace(text)
-
-	var p netip.Prefix
-
-	if strings.Contains(text, "/") {
-		parsed, err := netip.ParsePrefix(text)
-		if err != nil {
-			return "", fmt.Errorf("not an IP address or CIDR: %q", text)
-		}
-
-		p = parsed.Masked()
-	} else {
-		a, err := netip.ParseAddr(text)
-		if err != nil || a.Zone() != "" {
-			return "", fmt.Errorf("not an IP address or CIDR: %q", text)
-		}
-
-		p = netip.PrefixFrom(a, a.BitLen())
+	p, err := parseIPMatch(text)
+	if err != nil {
+		return "", err
 	}
 
 	for _, s := range specialPrefixes {
@@ -109,11 +116,16 @@ func normaliseIP(text string) (string, error) {
 		return "", fmt.Errorf("%s is too wide: the prefix must be /%d or longer", p, minBits)
 	}
 
+	return ipMatch(p), nil
+}
+
+// ipMatch is the match text of p: a bare address for one host.
+func ipMatch(p netip.Prefix) string {
 	if p.IsSingleIP() {
-		return p.Addr().String(), nil
+		return p.Addr().String()
 	}
 
-	return p.String(), nil
+	return p.String()
 }
 
 // normaliseFragment trims a user-agent or referrer match and keeps its case.
