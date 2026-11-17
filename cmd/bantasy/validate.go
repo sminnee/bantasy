@@ -226,6 +226,8 @@ func checkAction(action string) error {
 	switch action {
 	case actionBlock, actionAllow, actionBanIP, actionSignal:
 		return nil
+	case actionPardon:
+		return errors.New(`action "pardon": use bantasy unban`)
 	}
 
 	src, name, ok := strings.Cut(action, ":")

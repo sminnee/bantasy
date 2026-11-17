@@ -65,7 +65,7 @@ A tool that has only evidence appends a `signal` rule instead. A ConfigMap canno
 
 ## CLI
 
-`cmd/bantasy` is a writer. It adds, removes, lists and prunes rules in rule files and ConfigMap keys, checks local rule files, and looks up who holds an IP address. It ships with the plugin's git tags.
+`cmd/bantasy` is a writer. It adds, removes, lists and prunes rules in rule files and ConfigMap keys, unbans IP addresses, checks local rule files, and looks up who holds an IP address. It ships with the plugin's git tags.
 
 Install the latest release:
 
@@ -82,6 +82,8 @@ add <kind> <match>... --reason <text> [--action <a>] [--ttl 30m|24h|7d|never]
                       [--cause <id>] [--source <s>] [--id <id>]
 remove <id>...
 remove <kind> <match>... [--source <s>]
+unban <ip|cidr>... [--ttl 30m|24h|7d|never] [--reason <text>] [--cause <id>]
+                   [--source <s>]
 list
 prune
 check <file>...
@@ -94,6 +96,7 @@ Examples:
 bantasy add ip 203.0.113.7 --reason "credential stuffing"
 bantasy add user-agent BadBot --reason scraper --ttl 7d
 bantasy remove ops:ip:203.0.113.7
+bantasy unban 203.0.113.7
 bantasy --file bans.jsonl list
 bantasy check patterns.jsonl
 bantasy ipinfo 104.248.12.56
@@ -117,6 +120,13 @@ A write goes to each target in turn. `list` shows each rule once per target that
 
 - `add` writes one rule per match. The id is `<source>:<kind>:<match>`, or `--id` for one match. When a target already holds a rule with that id, `add` replaces that line and keeps its `added` time.
 - `remove <id>...` applies when the first argument holds `:`. `remove <kind> <match>...` removes the rule with the id that `add` gives. A rule with the same match and another id belongs to another writer, so `remove` does not touch it. `remove` fails and writes nothing when no target holds one of the rules.
+- `unban` undoes a ban on each match.
+  - It removes each ban with the same match, of any id. Unlike `remove`, it also removes the bans of other writers, because such a ban would still block the IP. `203.0.113.7` and `203.0.113.7/32` are the same match. It prints the id of each removed ban.
+  - It writes a pardon with id `<source>:pardon:<match>` and `added` set to the current time, to the nanosecond. A second `unban` replaces the pardon with a new `added`.
+  - It takes any IP address or CIDR, including the non-public and wide ranges that `add` refuses: a trap can ban any client IP, and a pardon never blocks.
+  - `--ttl` defaults to 24h, as for `add ip`. `--reason` is optional.
+  - After the write, it prints a warning to stderr for each unexpired `ip` rule that still blocks part of the match: a trap rule, a wider ban, or a rule in the static rule file. With no `--file` or `--configmap`, it also reads `traefik/bantasy-static:static.jsonl` for this check. A warning does not change the exit code.
+  - `unban` is the only command that writes a pardon: `add --action pardon` is refused.
 - `list` prints the target, id, kind, match, action, source, cause and expiry of each rule. An expiry is `-` for none and `expired` when past.
 - `prune` drops expired rules.
 - `check` reads local files only. It prints `file:line: reason` for each line that bantasy cannot load, including a last line that does not parse.
@@ -175,13 +185,13 @@ For each trap ban, bantasy logs one JSON line to stdout:
 {"plugin":"bantasy","event":"trap","clientIp":"192.0.2.20","id":"repo:php-probe","banSeconds":86400,"expires":"2026-11-16T03:00:00Z","reason":"PHP scanner","middleware":"bantasy@file"}
 ```
 
-To undo a trap ban, add a pardon to a rule file, usually the dynamic rule file. Set `added` to the current time:
+To undo a trap ban, run `bantasy unban 192.0.2.20`. It writes a pardon to the dynamic rule file, with `added` set to the current time:
 
 ```jsonl
-{"id":"ops:pardon:192.0.2.20","kind":"ip","match":"192.0.2.20","action":"pardon","added":"2026-11-15T03:00:00.123456789Z"}
+{"id":"ops:pardon:192.0.2.20","kind":"ip","match":"192.0.2.20","action":"pardon","source":"ops","added":"2026-11-15T03:00:00.123456789Z","expires":"2026-11-16T03:00:00.123456789Z"}
 ```
 
-At the next request from the IP, bantasy removes each trap ban set before `added`, and logs a `pardon` line with the pardon's `id` and the trap rule's `id` in `cause`. A later trap rule match bans the IP again, so you can test a trap more than once. A pardon with an `added` more than 5 minutes after the pod's clock lifts nothing, and bantasy logs a warning when it loads. A pardon does not lift an `ip` block rule: remove its line instead. [ADR 0002](docs/adr/0002-pardon-and-default-rule-files.md) gives the reasons.
+At the next request from the IP, bantasy removes each trap ban set before `added`, and logs a `pardon` line with the pardon's `id` and the trap rule's `id` in `cause`. A later trap rule match bans the IP again, so you can test a trap more than once. A pardon with an `added` more than 5 minutes after the pod's clock lifts nothing, and bantasy logs a warning when it loads. A pardon does not lift a ban, so `unban` also removes the bans with the same match. [ADR 0002](docs/adr/0002-pardon-and-default-rule-files.md) gives the reasons.
 
 To make a trap ban shared and lasting, an external writer can turn this line into a ban in a rule file, with `cause` set to the trap rule's `id`.
 
