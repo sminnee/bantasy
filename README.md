@@ -228,6 +228,8 @@ A rule-file problem has `level` (`info`, `warn` or `error`), `file` and `msg`.
 | `trapBanSeconds` | `28800` (8 hours) | Trap-ban time for a `ban-ip` rule with no `banSeconds`. |
 | `trapBanMax` | `10000` | Maximum entries in the trap-ban table. |
 
+The block response always has `Cache-Control: no-store`, so a CDN that obeys origin cache headers does not cache a block.
+
 All Middlewares with the same `files`, `reloadSeconds` and `trapBanMax` share one rule set and one trap-ban table. A trap on one route bans the IP on all of them.
 
 Traefik replaces `X-Real-Ip` with the remote address unless the entry point trusts the sender. Behind a CDN, set `forwardedHeaders.trustedIPs` on the entry point to the CDN's ranges. Do not use `X-Forwarded-For`: its first value is whatever the client sent.
