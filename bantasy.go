@@ -207,6 +207,9 @@ func (b *Bantasy) block(rw http.ResponseWriter, req *http.Request, ip netip.Addr
 		logEvent(ev)
 	}
 
+	// A block is per client IP, so no cache may keep it.
+	rw.Header().Set("Cache-Control", "no-store")
+
 	if b.config.Body != "" {
 		rw.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	}

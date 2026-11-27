@@ -102,6 +102,10 @@ func TestServeBlockAndPass(t *testing.T) {
 		t.Errorf("block response = %d %q", rec.Code, rec.Body.String())
 	}
 
+	if cc := rec.Header().Get("Cache-Control"); cc != "no-store" {
+		t.Errorf("block Cache-Control = %q, want no-store", cc)
+	}
+
 	if f.passed != 0 {
 		t.Error("a blocked request reached next")
 	}
@@ -109,6 +113,10 @@ func TestServeBlockAndPass(t *testing.T) {
 	rec = f.serve("192.0.2.1:1234", "/index.html", nil)
 	if rec.Code != http.StatusOK || f.passed != 1 {
 		t.Errorf("clean request: code %d, passed %d", rec.Code, f.passed)
+	}
+
+	if cc := rec.Header().Get("Cache-Control"); cc != "" {
+		t.Errorf("passed Cache-Control = %q, want none", cc)
 	}
 
 	blocks := logEvents(t, f.logs.String(), "block")
@@ -133,6 +141,10 @@ func TestServeDefaultResponse(t *testing.T) {
 	rec := f.serve("192.0.2.1:1", "/", nil)
 	if rec.Code != http.StatusForbidden || rec.Body.Len() != 0 {
 		t.Errorf("default block = %d %q, want 403 and no body", rec.Code, rec.Body.String())
+	}
+
+	if cc := rec.Header().Get("Cache-Control"); cc != "no-store" {
+		t.Errorf("default block Cache-Control = %q, want no-store", cc)
 	}
 
 	if len(logEvents(t, f.logs.String(), "block")) != 0 {
